@@ -1,0 +1,89 @@
+version: "3.9"
+
+# Ce docker-compose déploie MySQL + l'API FastAPI + le dashboard Streamlit +
+# Prometheus. OpenMetadata N'EST PAS inclus ici (stack trop volumineuse pour
+# être embarquée) : déployez-le séparément via sa propre stack officielle
+# (https://docs.open-metadata.org/quick-start/local-docker-deployment), puis
+# renseignez OPENMETADATA_HOST_PORT / OPENMETADATA_JWT_TOKEN dans .env pour
+# que l'API s'y connecte.
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeme}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-hr_pipeline}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-changeme}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - hr_network
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-changeme}@mysql:3306/${MYSQL_DATABASE:-hr_pipeline}
+      API_KEY: ${API_KEY:-change-me-in-production}
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AUDIT_PSEUDONYMIZATION_SALT: ${AUDIT_PSEUDONYMIZATION_SALT:-change-me-in-production}
+      OPENMETADATA_ENABLED: ${OPENMETADATA_ENABLED:-false}
+      OPENMETADATA_HOST_PORT: ${OPENMETADATA_HOST_PORT:-http://host.docker.internal:8585/api}
+      OPENMETADATA_JWT_TOKEN: ${OPENMETADATA_JWT_TOKEN:-}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - hr_network
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      API_BASE_URL: http://api:8000
+      API_KEY: ${API_KEY:-change-me-in-production}
+    ports:
+      - "8501:8501"
+    networks:
+      - hr_network
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+    networks:
+      - hr_network
+
+volumes:
+  mysql_data:
+  prometheus_data:
+
+networks:
+  hr_network:
+    driver: bridge

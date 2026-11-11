@@ -1,0 +1,24 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B008"]  # B008: Depends() en default arg est le pattern standard FastAPI
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+disallow_untyped_defs = false
+exclude = ["tests/", "alembic/", "app/openmetadata/"]
+# app/openmetadata/ exclu : le SDK openmetadata-ingestion utilise des types
+# Pydantic RootModel (EntityName, Timestamp, Markdown...) qui acceptent des
+# str/int bruts à l'exécution (coercition Pydantic validée par nos tests
+# réels contre le SDK), mais dont les stubs stricts ne le reflètent pas —
+# mismatch connu aux frontières de ce SDK externe, sans impact fonctionnel.
